@@ -15,6 +15,28 @@ fn extract_line_tag(line: &crate::state::TerminalLine) -> String {
     String::new()
 }
 
+/// Normalize control characters for display: CRLF → LF, tab → 4 spaces,
+/// drop every other control character.
+fn sanitize_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                    out.push('\n');
+                }
+            }
+            '\n' => out.push('\n'),
+            '\t' => out.push_str("    "),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
     let lang = state.language;
     let c = theme::get_colors(state.theme);
@@ -25,6 +47,7 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
         ui.separator();
         ui.checkbox(&mut state.show_timestamp, T::show_timestamp(lang));
         ui.checkbox(&mut state.auto_scroll, T::auto_scroll(lang));
+        ui.checkbox(&mut state.ansi_colors, T::ansi_colors(lang));
         ui.separator();
         ui.label(egui::RichText::new(T::crc_label(lang)).strong()).on_hover_text(crc_hover_text(lang));
         let checksum = state.terminal_checksum_mode;
@@ -173,27 +196,19 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 };
                 let seq_tag = format!("#{:04} ", seq);
 
+                let ansi_active = state.ansi_colors && !line.is_hex && line.content.contains('\u{1b}');
                 let content = if line.is_hex {
                     line.content.clone()
+                } else if ansi_active {
+                    // Keep raw content here; spans are parsed and sanitized below.
+                    line.content.clone()
                 } else {
-                    let s = &line.content;
-                    let mut out = String::with_capacity(s.len());
-                    let mut chars = s.chars().peekable();
-                    while let Some(ch) = chars.next() {
-                        match ch {
-                            '\r' => {
-                                if chars.peek() == Some(&'\n') {
-                                    chars.next();
-                                    out.push('\n');
-                                }
-                            }
-                            '\n' => out.push('\n'),
-                            '\t' => out.push_str("    "),
-                            c if c.is_control() => {}
-                            c => out.push(c),
-                        }
-                    }
-                    out
+                    let plain = if line.content.contains('\u{1b}') {
+                        ui::ansi::strip_ansi(&line.content)
+                    } else {
+                        line.content.clone()
+                    };
+                    sanitize_text(&plain)
                 };
 
                 // Render row
@@ -230,7 +245,19 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
                         };
                         ui.label(egui::RichText::new(format_tag).color(fmt_color).size(11.0).strong());
                     }
-                    ui.add(egui::Label::new(egui::RichText::new(&content).color(content_color).size(14.0)).wrap());
+                    if ansi_active {
+                        let spans: Vec<ui::ansi::Span> = ui::ansi::parse_ansi(&content)
+                            .into_iter()
+                            .filter_map(|mut span| {
+                                span.text = sanitize_text(&span.text);
+                                if span.text.is_empty() { None } else { Some(span) }
+                            })
+                            .collect();
+                        let job = ui::ansi::layout_job(&spans, content_color, 14.0);
+                        ui.add(egui::Label::new(job).wrap());
+                    } else {
+                        ui.add(egui::Label::new(egui::RichText::new(&content).color(content_color).size(14.0)).wrap());
+                    }
                 });
                 // Add zero-height spacer to ensure cursor advances past the row
                 ui.allocate_ui_with_layout(egui::vec2(0.0, 0.0), egui::Layout::left_to_right(egui::Align::Min), |_| {});

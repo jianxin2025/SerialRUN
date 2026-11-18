@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4.9 - 2026-11-18
+
+### ANSI Color Rendering
+
+- **Terminal ANSI colors**: text-mode lines now render SGR escape sequences (`ESC[...m`) with real colors instead of showing them as raw `[31m` text — standard/bright/256-color/24-bit foreground and background, bold (rendered as a brighter color, matching egui's strong text), italic and underline
+- **New "ANSI Colors" toggle** in the terminal toolbar, persisted to `config.toml` and enabled by default; turn it off for plain single-color output
+- Non-SGR escape sequences (cursor movement, OSC titles) are stripped so they no longer leak into the display
+- HEX mode is unchanged: bytes are still shown verbatim
+
+---
+
 ## v0.4.8 - 2026-10-28
 
 ### Cleaner Update Entry Point
