@@ -1,6 +1,6 @@
 [package]
 name = "serialrun-mcp"
-version = "0.4.10"
+version = "0.4.11"
 edition = "2021"
 description = "MCP server for SerialRUN serial port assistant"
 license = "MIT"

@@ -37,6 +37,25 @@ fn sanitize_text(s: &str) -> String {
     out
 }
 
+/// Send a raw 0x03 (Ctrl+C / SIGINT) byte without line ending or checksum.
+fn send_ctrl_c(state: &mut AppState) {
+    if state.port_owner.is_none() {
+        let msg = if state.language == Language::Chinese {
+            "未连接串口，请先连接设备"
+        } else {
+            "Not connected. Please connect to a serial port first."
+        };
+        state.show_error(msg);
+        return;
+    }
+    state.tx_count += 1;
+    state.add_chart_data(1.0);
+    state.add_terminal_line(Direction::Tx, "^C".into(), false);
+    if let Some(ref po) = state.port_owner {
+        po.send(PortCommand::Write(vec![0x03]));
+    }
+}
+
 pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
     let lang = state.language;
     let c = theme::get_colors(state.theme);
@@ -203,15 +222,15 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 let content = if line.is_hex {
                     line.content.clone()
                 } else if ansi_active {
-                    // Keep raw content here; spans are parsed and sanitized below.
-                    line.content.clone()
+                    // Keep raw escape sequences; expand tabs without counting them.
+                    ui::ansi::expand_tabs(&line.content, 8)
                 } else {
                     let plain = if line.content.contains('\u{1b}') {
                         ui::ansi::strip_ansi(&line.content)
                     } else {
                         line.content.clone()
                     };
-                    sanitize_text(&plain)
+                    sanitize_text(&ui::ansi::expand_tabs(&plain, 8))
                 };
 
                 // Render row
@@ -259,7 +278,7 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
                         let job = ui::ansi::layout_job(&spans, content_color, 14.0);
                         ui.add(egui::Label::new(job).wrap());
                     } else {
-                        ui.add(egui::Label::new(egui::RichText::new(&content).color(content_color).size(14.0)).wrap());
+                        ui.add(egui::Label::new(egui::RichText::new(&content).color(content_color).size(14.0).monospace()).wrap());
                     }
                 });
                 // Add zero-height spacer to ensure cursor advances past the row
@@ -439,8 +458,9 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
             let send_text_w = ui.fonts(|f| f.layout(T::send(lang).into(), egui::FontId::proportional(13.0), egui::Color32::WHITE, f32::INFINITY).rect.width());
             let send_w = send_text_w.max(50.0) + 16.0; // text + button padding
             let ft_w = 28.0 + 2.0;
+            let ctrl_c_w = 50.0 + 4.0;
             let spacing = 2.0 + 4.0 + 4.0 + 4.0 + 2.0; // gaps between widgets
-            let reserved = plus_w + le_label_w + le_combo_w + send_w + ft_w + spacing + 40.0;
+            let reserved = plus_w + le_label_w + le_combo_w + send_w + ctrl_c_w + ft_w + spacing + 40.0;
             let input_w = (ui.available_width() - reserved).max(60.0);
             let input_resp = ui.add_sized([input_w, row_height], egui::TextEdit::singleline(&mut state.input_buffer).frame(true).margin(egui::Margin::symmetric(8.0, 4.0)));
             // Enter → send, Shift+Enter → newline
@@ -490,6 +510,25 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 do_send(state);
                 refocus_input = true;
             }
+
+            // Ctrl+C — send a raw 0x03 (SIGINT) to interrupt top and similar programs
+            ui.add_space(4.0);
+            let ctrl_c_btn = ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Ctrl+C")
+                            .color(egui::Color32::WHITE)
+                            .size(12.0),
+                    )
+                    .fill(egui::Color32::from_rgb(198, 40, 40))
+                    .min_size(egui::vec2(50.0, row_height)),
+                )
+                .on_hover_text("发送 0x03 (SIGINT)，中断 top 等前台程序");
+            if ctrl_c_btn.clicked() {
+                send_ctrl_c(state);
+                refocus_input = true;
+            }
+
             if refocus_input {
                 input_resp.request_focus();
             }

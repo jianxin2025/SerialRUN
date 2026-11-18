@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.11 - 2026-11-18
+
+### Terminal Readability & Ctrl+C
+
+- **True monospace terminal output**: the terminal now renders in the monospace family, and the CJK fonts (Microsoft YaHei / Noto Sans SC) are used only as fallbacks instead of overriding ASCII glyphs — columns in `ls -l`, `top -b`, `dmesg` etc. now line up
+- **Real tab stops**: tabs expand to 8-column tab stops, ANSI-color-aware (escape sequences do not consume columns)
+- **Ctrl+C button**: sends a raw `0x03` (SIGINT) without line ending or checksum, so `top` and other foreground programs can be interrupted with one click
+
+---
+
 ## v0.4.10 - 2026-11-18
 
 ### Terminal Input Focus Fix

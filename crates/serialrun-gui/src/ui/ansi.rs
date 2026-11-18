@@ -125,6 +125,73 @@ pub fn strip_ansi(input: &str) -> String {
     out
 }
 
+/// Expand tab characters to `tab_width`-column tab stops.
+///
+/// ANSI escape sequences are copied verbatim and do not consume columns, so
+/// colored output keeps the same alignment as plain output. CR/LF reset the
+/// column counter.
+pub fn expand_tabs(input: &str, tab_width: usize) -> String {
+    let tab_width = tab_width.max(1);
+    let mut out = String::with_capacity(input.len());
+    let mut col = 0usize;
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\x1b' => {
+                out.push(ch);
+                match chars.next() {
+                    Some('[') => {
+                        out.push('[');
+                        for c in chars.by_ref() {
+                            out.push(c);
+                            if ('\x40'..='\x7e').contains(&c) {
+                                break;
+                            }
+                        }
+                    }
+                    Some(']') => {
+                        out.push(']');
+                        while let Some(c) = chars.next() {
+                            out.push(c);
+                            if c == '\x07' {
+                                break;
+                            }
+                            if c == '\x1b' && chars.peek() == Some(&'\\') {
+                                chars.next();
+                                out.push('\\');
+                                break;
+                            }
+                        }
+                    }
+                    Some(c) => out.push(c),
+                    None => {}
+                }
+            }
+            '\t' => {
+                let spaces = tab_width - (col % tab_width);
+                for _ in 0..spaces {
+                    out.push(' ');
+                }
+                col += spaces;
+            }
+            '\n' => {
+                out.push('\n');
+                col = 0;
+            }
+            '\r' => {
+                out.push('\r');
+                col = 0;
+            }
+            c => {
+                out.push(c);
+                col += 1;
+            }
+        }
+    }
+    out
+}
+
 /// Build an egui LayoutJob. `default_fg` is used for spans without an SGR color
 /// so the existing TX/RX/SYS direction colors remain visible.
 pub fn layout_job(
@@ -142,7 +209,7 @@ pub fn layout_job(
             color = brighten(color);
         }
         let format = TextFormat {
-            font_id: egui::FontId::proportional(font_size),
+            font_id: egui::FontId::monospace(font_size),
             color,
             background: span.bg.unwrap_or(egui::Color32::TRANSPARENT),
             italics: span.italic,
@@ -359,5 +426,25 @@ mod tests {
         let spans = parse_ansi("abc\x1b[31");
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].text, "abc");
+    }
+
+    #[test]
+    fn tabs_expand_to_next_stop() {
+        assert_eq!(expand_tabs("a\tb", 8), "a       b");
+        assert_eq!(expand_tabs("\tx", 8), "        x");
+        assert_eq!(expand_tabs("abcdefgh\tx", 8), "abcdefgh        x");
+    }
+
+    #[test]
+    fn tabs_reset_after_newline() {
+        assert_eq!(expand_tabs("ab\nc\td", 8), "ab\nc       d");
+    }
+
+    #[test]
+    fn tabs_do_not_count_ansi() {
+        assert_eq!(
+            expand_tabs("\x1b[31mab\tc\x1b[0m", 8),
+            "\x1b[31mab      c\x1b[0m"
+        );
     }
 }
