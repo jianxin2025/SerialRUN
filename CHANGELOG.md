@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.10 - 2026-11-18
+
+### Terminal Input Focus Fix
+
+- The input box keeps keyboard focus after sending with **Enter**, the **Send** button, or a **quick command** — no more re-clicking the box for every command
+- Enter on an empty input no longer leaves the box unfocused
+
+---
+
 ## v0.4.9 - 2026-11-18
 
 ### ANSI Color Rendering
