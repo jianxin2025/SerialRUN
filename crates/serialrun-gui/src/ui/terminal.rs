@@ -40,6 +40,9 @@ fn sanitize_text(s: &str) -> String {
 pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
     let lang = state.language;
     let c = theme::get_colors(state.theme);
+    // Set when a user-initiated send happens (Enter, Send button, quick command)
+    // so the input box can take keyboard focus back afterwards.
+    let mut refocus_input = false;
 
     // Toolbar — auto-wrapping, clear/save at end
     ui.horizontal_wrapped(|ui| {
@@ -400,6 +403,7 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 state.add_chart_data(bytes.len() as f64);
                 state.add_terminal_line(Direction::Tx, display, is_hex);
                 if let Some(ref po) = state.port_owner { po.send(PortCommand::Write(bytes)); }
+                refocus_input = true;
             }
         }
     }
@@ -440,12 +444,17 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
             let input_w = (ui.available_width() - reserved).max(60.0);
             let input_resp = ui.add_sized([input_w, row_height], egui::TextEdit::singleline(&mut state.input_buffer).frame(true).margin(egui::Margin::symmetric(8.0, 4.0)));
             // Enter → send, Shift+Enter → newline
-            if input_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !state.input_buffer.is_empty() {
-                if ui.input(|i| i.modifiers.shift) {
-                    state.input_buffer.push('\n');
-                } else {
-                    do_send(state);
+            if input_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if !state.input_buffer.is_empty() {
+                    if ui.input(|i| i.modifiers.shift) {
+                        state.input_buffer.push('\n');
+                    } else {
+                        do_send(state);
+                    }
                 }
+                // Enter makes egui surrender focus; take it back so the user can
+                // keep typing without clicking the input box again.
+                refocus_input = true;
             }
             // "+" save as quick command
             ui.add_space(2.0);
@@ -477,7 +486,13 @@ pub fn render_terminal_panel(ui: &mut egui::Ui, state: &mut AppState) {
             ui.add_space(4.0);
             let btn_fill = if state.hex_mode { egui::Color32::from_rgb(255, 152, 0) } else { c.btn_send };
             let send_btn = ui.add(egui::Button::new(egui::RichText::new(T::send(lang)).color(egui::Color32::WHITE).strong().size(13.0)).fill(btn_fill).min_size(egui::vec2(50.0, row_height)));
-            if send_btn.clicked() && !state.input_buffer.is_empty() { do_send(state); }
+            if send_btn.clicked() && !state.input_buffer.is_empty() {
+                do_send(state);
+                refocus_input = true;
+            }
+            if refocus_input {
+                input_resp.request_focus();
+            }
 
             // File transfer button — up/down transfer arrows with click animation
             ui.add_space(2.0);
